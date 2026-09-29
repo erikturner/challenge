@@ -138,11 +138,12 @@ At startup the process:
 
 1. loads in-cluster Kubernetes configuration when running as a pod (falling back to the developer's local kubeconfig when running the server outside the cluster)
 2. creates a namespace-scoped shared Deployment informer
-3. starts the informer
-4. waits for initial cache synchronization
-5. loads server certificate/key and client CA
-6. starts the mTLS API listener
-7. starts an internal health listener for kubelet probes
+3. starts an internal health listener for kubelet probes
+4. starts the informer
+5. waits for initial cache synchronization
+6. loads server certificate/key and client CA
+7. starts the mTLS API listener
+
 
 The process does not declare itself ready until the Deployment informer has completed its initial cache synchronization and Kubernetes API connectivity has been verified. 
 
@@ -275,6 +276,12 @@ The KIND integration test covers the complete packaged service, including intern
 ### Deployment disappears between cache read and update
 
 The `/scale` request returns Kubernetes `NotFound`; the caller receives `404`. The informer will also remove the cached object through its watch.
+
+### Concurrent replica updates
+
+Replica updates use Kubernetes optimistic concurrency through `metadata.resourceVersion`. If a `/scale` update returns a conflict because another writer modified the resource, the server re-fetches the latest `Scale` object, reapplies the requested replica count, and retries the update using a bounded conflict retry policy.
+
+If the retry policy is exhausted, the operation fails and the error is returned through the normal API error handling path.
 
 ### Watch disconnects
 
