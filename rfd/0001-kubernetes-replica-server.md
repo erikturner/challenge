@@ -1,6 +1,6 @@
 # RFD 0001 - Kubernetes Replica Server
 
-- **Status:** Draft
+- **Status:** Approved
 - **Target:** Level 4
 - **Author:** Erik Turner
 - **Required Approvers:** Adam Carheden, Hugo Shaka, Roman Tkachenko
