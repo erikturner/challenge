@@ -6,23 +6,32 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	appslisters "k8s.io/client-go/listers/apps/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/retry"
 )
 
-// Client is the subset of Kubernetes operations used by the HTTP API.
+// Client defines the Kubernetes operations used by the HTTP API.
 type Client interface {
+	// WaitForSync waits for the Deployment informer cache to synchronize.
 	WaitForSync(ctx context.Context) error
+
+	// ListDeployments returns Deployments from the informer cache.
 	ListDeployments(ctx context.Context) ([]appsv1.Deployment, error)
+
+	// GetReplicas returns the cached desired replica count for a Deployment.
 	GetReplicas(ctx context.Context, name string) (int32, error)
+
+	// SetReplicas updates the desired replica count for a Deployment.
 	SetReplicas(ctx context.Context, name string, replicas int32) (int32, error)
+
+	// Ready reports whether the cache is synchronized and the Kubernetes API is reachable.
 	Ready(ctx context.Context) error
 }
 
@@ -30,6 +39,7 @@ type client struct {
 	clientset kubernetes.Interface
 	namespace string
 	informer  cache.SharedIndexInformer
+	lister    appslisters.DeploymentLister
 }
 
 // New creates a Kubernetes client and starts a namespace-scoped Deployment
@@ -53,15 +63,21 @@ func New(ctx context.Context, namespace string) (Client, error) {
 }
 
 func newWithClientset(ctx context.Context, clientset kubernetes.Interface, namespace string) (Client, error) {
+	const resyncPeriod = 0
 	factory := informers.NewSharedInformerFactoryWithOptions(
 		clientset,
-		0,
+		resyncPeriod,
 		informers.WithNamespace(namespace),
 	)
-	informer := factory.Apps().V1().Deployments().Informer()
+
+	deploymentInformer := factory.Apps().V1().Deployments()
+
+	informer := deploymentInformer.Informer()
+	lister := deploymentInformer.Lister()
+
 	factory.Start(ctx.Done())
 
-	return &client{clientset: clientset, namespace: namespace, informer: informer}, nil
+	return &client{clientset: clientset, namespace: namespace, informer: informer, lister: lister}, nil
 }
 
 func (c *client) WaitForSync(ctx context.Context) error {
@@ -89,18 +105,11 @@ func (c *client) ListDeployments(context.Context) ([]appsv1.Deployment, error) {
 }
 
 func (c *client) GetReplicas(_ context.Context, name string) (int32, error) {
-	key := c.namespace + "/" + name
-	object, exists, err := c.informer.GetStore().GetByKey(key)
+	deployment, err := c.lister.Deployments(c.namespace).Get(name)
 	if err != nil {
 		return 0, err
 	}
-	if !exists {
-		return 0, apierrors.NewNotFound(schema.GroupResource{Group: "apps", Resource: "deployments"}, name)
-	}
-	deployment, ok := object.(*appsv1.Deployment)
-	if !ok {
-		return 0, fmt.Errorf("cached object %q is not a deployment", name)
-	}
+
 	if deployment.Spec.Replicas == nil {
 		return 1, nil
 	}
@@ -109,8 +118,14 @@ func (c *client) GetReplicas(_ context.Context, name string) (int32, error) {
 
 func (c *client) SetReplicas(ctx context.Context, name string, replicas int32) (int32, error) {
 	var updatedReplicas int32
+	var conflictBackoff = wait.Backoff{
+		Steps:    5,
+		Duration: 10 * time.Millisecond,
+		Factor:   1.0,
+		Jitter:   0.1,
+	}
 
-	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+	err := retry.RetryOnConflict(conflictBackoff, func() error {
 		scale, err := c.clientset.AppsV1().
 			Deployments(c.namespace).
 			GetScale(ctx, name, metav1.GetOptions{})
