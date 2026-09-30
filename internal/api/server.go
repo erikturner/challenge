@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/erikturner/challenge/internal/kube"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -36,6 +38,31 @@ func New(client kube.Client, logger *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /api/v1/deployments/{name}/replicas", s.getReplicas)
 	mux.HandleFunc("PUT /api/v1/deployments/{name}/replicas", s.setReplicas)
 	return logging(logger, mux)
+}
+
+// NewHealthHandler exposes liveness and readiness checks for kubelet probes on
+// an internal-only container port. The Kubernetes Service does not expose this
+// listener.
+func NewHealthHandler(client kube.Client) http.Handler {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		
+		if err := client.Ready(ctx); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "server not ready")
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	return mux
 }
 
 func (s *server) listDeployments(w http.ResponseWriter, r *http.Request) {
