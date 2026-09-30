@@ -110,3 +110,39 @@ func TestSetReplicasBadGateway(t *testing.T) {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadGateway)
 	}
 }
+
+func TestLivenessHappyPath(t *testing.T) {
+	client := &fakeKube{err: errors.New("api down")}
+	r := httptest.NewRequest(http.MethodGet, "/livez", nil)
+	w := httptest.NewRecorder()
+
+	NewHealthHandler(client).ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestReadinessHappyPath(t *testing.T) {
+	client := &fakeKube{}
+	r := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	w := httptest.NewRecorder()
+
+	NewHealthHandler(client).ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestReadinessUnhappyPath(t *testing.T) {
+	client := &fakeKube{err: errors.New("api down")}
+	r := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	w := httptest.NewRecorder()
+
+	NewHealthHandler(client).ServeHTTP(w, r)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+	}
+}
