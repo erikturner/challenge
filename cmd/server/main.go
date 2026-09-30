@@ -4,11 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
+	"net/http"
+	"os"
 
+	"github.com/erikturner/challenge/internal/api"
 	"github.com/erikturner/challenge/internal/kube"
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
 	ctx := context.Background()
 
 	client, err := kube.New(ctx, "default")
@@ -20,43 +26,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	deployments, err := client.ListDeployments(ctx)
-	if err != nil {
+	handler := api.New(client, logger)
+
+	fmt.Println("API listening on http://localhost:8080")
+
+	if err := http.ListenAndServe(":8080", handler); err != nil {
 		log.Fatal(err)
 	}
-
-	fmt.Println("Deployments:")
-	for _, deployment := range deployments {
-		fmt.Printf("%s\n", deployment.Name)
-	}
-
-	// Test GetReplicas
-	replicasGet, err := client.GetReplicas(ctx, "demo")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Test SetReplicas
-	replicasSet, err := client.SetReplicas(ctx, "demo", 5)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Printf("replicas before update: %d\n", replicasGet)
-	fmt.Printf("updated replicas: %d\n", replicasSet)
-
-	// Test informer/watch
-	fmt.Println()
-	fmt.Println("Run this in another terminal:")
-	fmt.Println("kubectl scale deployment demo --replicas=7")
-	fmt.Println()
-	fmt.Println("Press Enter after changing replicas with kubectl...")
-	fmt.Scanln()
-
-	replicasCache, err := client.GetReplicas(ctx, "demo")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Printf("demo replicas from informer cache: %d\n", replicasCache)
 }
