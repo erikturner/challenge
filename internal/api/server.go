@@ -31,6 +31,9 @@ type deploymentResponse struct {
 	Replicas int32  `json:"replicas"`
 }
 
+// New creates an HTTP handler for the Deployment replica API,
+// registering routes for listing Deployments and reading and updating
+// replica counts. It also applies request logging middleware.
 func New(client kube.Client, logger *slog.Logger) http.Handler {
 	s := &server{kube: client, logger: logger}
 	mux := http.NewServeMux()
