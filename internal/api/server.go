@@ -43,23 +43,24 @@ func New(client kube.Client, logger *slog.Logger) http.Handler {
 // NewHealthHandler exposes liveness and readiness checks for kubelet probes on
 // an internal-only container port. The Kubernetes Service does not expose this
 // listener.
-func NewHealthHandler(client kube.Client) http.Handler {
+func NewHealthHandler(client kube.Client, logger *slog.Logger) http.Handler {
+	s := &server{kube: client, logger: logger}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		
+
 		if err := client.Ready(ctx); err != nil {
-			writeError(w, http.StatusServiceUnavailable, "server not ready")
+			s.writeError(w, http.StatusServiceUnavailable, "server not ready")
 			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
 	return mux
@@ -79,13 +80,13 @@ func (s *server) listDeployments(w http.ResponseWriter, r *http.Request) {
 		}
 		response = append(response, deploymentResponse{Name: d.Name, Replicas: replicas})
 	}
-	writeJSON(w, http.StatusOK, response)
+	s.writeJSON(w, http.StatusOK, response)
 }
 
 func (s *server) getReplicas(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validName(name) {
-		writeError(w, http.StatusBadRequest, "invalid deployment name")
+		s.writeError(w, http.StatusBadRequest, "invalid deployment name")
 		return
 	}
 	replicas, err := s.kube.GetReplicas(r.Context(), name)
@@ -93,13 +94,13 @@ func (s *server) getReplicas(w http.ResponseWriter, r *http.Request) {
 		s.writeKubeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, replicaResponse{Name: name, Replicas: replicas})
+	s.writeJSON(w, http.StatusOK, replicaResponse{Name: name, Replicas: replicas})
 }
 
 func (s *server) setReplicas(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validName(name) {
-		writeError(w, http.StatusBadRequest, "invalid deployment name")
+		s.writeError(w, http.StatusBadRequest, "invalid deployment name")
 		return
 	}
 
@@ -107,11 +108,11 @@ func (s *server) setReplicas(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, `request body must be JSON: {"replicas": <0-100>} `)
+		s.writeError(w, http.StatusBadRequest, `request body must be JSON: {"replicas": <0-100>} `)
 		return
 	}
 	if req.Replicas < 0 || req.Replicas > 100 {
-		writeError(w, http.StatusBadRequest, "replicas must be between 0 and 100")
+		s.writeError(w, http.StatusBadRequest, "replicas must be between 0 and 100")
 		return
 	}
 
@@ -120,18 +121,18 @@ func (s *server) setReplicas(w http.ResponseWriter, r *http.Request) {
 		s.writeKubeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, replicaResponse{Name: name, Replicas: replicas})
+	s.writeJSON(w, http.StatusOK, replicaResponse{Name: name, Replicas: replicas})
 }
 
 func (s *server) writeKubeError(w http.ResponseWriter, err error) {
 	switch {
 	case apierrors.IsNotFound(err):
-		writeError(w, http.StatusNotFound, "deployment not found")
+		s.writeError(w, http.StatusNotFound, "deployment not found")
 	case apierrors.IsForbidden(err), apierrors.IsUnauthorized(err):
-		writeError(w, http.StatusForbidden, "kubernetes access denied")
+		s.writeError(w, http.StatusForbidden, "kubernetes access denied")
 	default:
 		s.logger.Error("kubernetes request failed", "error", err)
-		writeError(w, http.StatusBadGateway, "kubernetes request failed")
+		s.writeError(w, http.StatusBadGateway, "kubernetes request failed")
 	}
 }
 
@@ -139,14 +140,16 @@ func validName(name string) bool {
 	return len(validation.IsDNS1123Subdomain(name)) == 0
 }
 
-func writeJSON(w http.ResponseWriter, status int, value any) {
+func (s *server) writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		s.logger.Error("failed to encode JSON response", "error", err)
+	}
 }
 
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]any{"error": message, "status": status})
+func (s *server) writeError(w http.ResponseWriter, status int, message string) {
+	s.writeJSON(w, status, map[string]any{"error": message, "status": status})
 }
 
 func logging(logger *slog.Logger, next http.Handler) http.Handler {

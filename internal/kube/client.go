@@ -6,6 +6,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
@@ -81,10 +82,7 @@ func newWithClientset(ctx context.Context, clientset kubernetes.Interface, names
 }
 
 func (c *client) WaitForSync(ctx context.Context) error {
-	syncCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	if !cache.WaitForCacheSync(syncCtx.Done(), c.informer.HasSynced) {
+	if !cache.WaitForCacheSync(ctx.Done(), c.informer.HasSynced) {
 		return fmt.Errorf("deployment informer cache failed to sync")
 	}
 
@@ -120,20 +118,27 @@ func (c *client) SetReplicas(ctx context.Context, name string, replicas int32) (
 	var updatedReplicas int32
 	var conflictBackoff = wait.Backoff{
 		Steps:    5,
-		Duration: 10 * time.Millisecond,
+		Duration: 50 * time.Millisecond,
 		Factor:   1.0,
 		Jitter:   0.1,
 	}
 
 	err := retry.RetryOnConflict(conflictBackoff, func() error {
-		scale, err := c.clientset.AppsV1().
-			Deployments(c.namespace).
-			GetScale(ctx, name, metav1.GetOptions{})
+		deployment, err := c.lister.Deployments(c.namespace).Get(name)
 		if err != nil {
 			return err
 		}
 
-		scale.Spec.Replicas = replicas
+		scale := &autoscalingv1.Scale{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            deployment.Name,
+				Namespace:       deployment.Namespace,
+				ResourceVersion: deployment.ResourceVersion,
+			},
+			Spec: autoscalingv1.ScaleSpec{
+				Replicas: replicas,
+			},
+		}
 
 		updated, err := c.clientset.AppsV1().
 			Deployments(c.namespace).

@@ -46,7 +46,10 @@ func main() {
 		}
 	}()
 
-	if err := client.WaitForSync(ctx); err != nil {
+	syncCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	if err := client.WaitForSync(syncCtx); err != nil {
 		logger.Error("wait for informer cache sync", "error", err)
 		stop()
 	}
@@ -55,6 +58,7 @@ func main() {
 		Addr:              apiAddr,
 		Handler:           api.New(client, logger),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 

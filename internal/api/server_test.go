@@ -113,10 +113,11 @@ func TestSetReplicasBadGateway(t *testing.T) {
 
 func TestLivenessHappyPath(t *testing.T) {
 	client := &fakeKube{err: errors.New("api down")}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	r := httptest.NewRequest(http.MethodGet, "/livez", nil)
 	w := httptest.NewRecorder()
 
-	NewHealthHandler(client).ServeHTTP(w, r)
+	NewHealthHandler(client, logger).ServeHTTP(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
@@ -125,10 +126,11 @@ func TestLivenessHappyPath(t *testing.T) {
 
 func TestReadinessHappyPath(t *testing.T) {
 	client := &fakeKube{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	r := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	w := httptest.NewRecorder()
 
-	NewHealthHandler(client).ServeHTTP(w, r)
+	NewHealthHandler(client, logger).ServeHTTP(w, r)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
@@ -137,10 +139,11 @@ func TestReadinessHappyPath(t *testing.T) {
 
 func TestReadinessUnhappyPath(t *testing.T) {
 	client := &fakeKube{err: errors.New("api down")}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	r := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	w := httptest.NewRecorder()
 
-	NewHealthHandler(client).ServeHTTP(w, r)
+	NewHealthHandler(client, logger).ServeHTTP(w, r)
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
