@@ -124,6 +124,9 @@ func (c *client) SetReplicas(ctx context.Context, name string, replicas int32) (
 	}
 
 	err := retry.RetryOnConflict(conflictBackoff, func() error {
+		// Retrieve the Deployment from the informer-backed cache to avoid
+		// an additional Kubernetes API read before updating its scale.
+		// The cached resource version is used for optimistic concurrency.
 		deployment, err := c.lister.Deployments(c.namespace).Get(name)
 		if err != nil {
 			return err
