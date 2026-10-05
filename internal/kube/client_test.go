@@ -180,7 +180,7 @@ func TestSetReplicasRetriesOnConflict(t *testing.T) {
 	}
 }
 
-func TestSetReplicasUsesCacheForRead(t *testing.T) {
+func TestSetReplicasUsesScaleSubresource(t *testing.T) {
 	replicas := int32(2)
 
 	clientset := fake.NewSimpleClientset(&appsv1.Deployment{
