@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: replica-test
+  labels:
+    app: replica-test
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: replica-test
+
+  template:
+    metadata:
+      labels:
+        app: replica-test
+
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

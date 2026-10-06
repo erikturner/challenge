@@ -1,0 +1,24 @@
+replicaCount: 2
+
+image:
+  repository: kube-replica-server
+  tag: dev
+  pullPolicy: Never
+
+rollingUpdate:
+  maxUnavailable: 0
+  maxSurge: 1
+
+service:
+  port: 8443
+
+tls:
+  secretName: kube-replica-server-tls
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
