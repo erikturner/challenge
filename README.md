@@ -239,7 +239,7 @@ Error scenarios that require controlled Kubernetes failures, such as authorizati
 Remove generated certificates, the local build output, and the KIND cluster:
 
 ```bash
-make clean
+make clean 
 ```
 
 This deletes the local Kubernetes environment, including the Helm release and test Deployment.
